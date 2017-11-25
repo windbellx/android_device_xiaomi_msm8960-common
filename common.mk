@@ -51,7 +51,6 @@ PRODUCT_COPY_FILES += \
 PRODUCT_COPY_FILES += \
     $(COMMON_PATH)/rootdir/etc/init.qcom.mdm_links.sh:system/etc/init.qcom.mdm_links.sh \
     $(COMMON_PATH)/rootdir/etc/init.qcom.modem_links.sh:system/etc/init.qcom.modem_links.sh \
-    $(COMMON_PATH)/rootdir/etc/init.qcom.wifi.sh:system/etc/init.qcom.wifi.sh \
     $(COMMON_PATH)/rootdir/etc/sec_config:system/etc/sec_config
 
 # Sid Nid Mapping
@@ -384,6 +383,10 @@ PRODUCT_COPY_FILES += \
     $(COMMON_PATH)/media/FadeOut.ogg:system/media/audio/notifications/FadeOut.ogg \
     $(COMMON_PATH)/media/GoodMorning.ogg:system/media/audio/alarms/GoodMorning.ogg \
     $(COMMON_PATH)/media/MI.ogg:system/media/audio/ringtones/MI.ogg
+
+PRODUCT_PACKAGES += \
+	libwcnss_qmi \
+	wcnss_service
 
 # This is the aries-specific audio package
 $(call inherit-product, frameworks/base/data/sounds/AudioPackage10.mk)
