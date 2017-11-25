@@ -40,7 +40,6 @@ PRODUCT_COPY_FILES += \
     $(COMMON_PATH)/rootdir/ramdisk/init.qcom.usb.sh:root/init.qcom.usb.sh \
     $(COMMON_PATH)/rootdir/ramdisk/init.qcom.sh:root/init.qcom.sh \
     $(COMMON_PATH)/rootdir/ramdisk/init.qcom.class_core.sh:root/init.qcom.class_core.sh \
-    $(COMMON_PATH)/rootdir/ramdisk/init.class_main.sh:root/init.class_main.sh \
     $(COMMON_PATH)/rootdir/ramdisk/init.qcom.early_boot.sh:root/init.qcom.early_boot.sh \
     $(COMMON_PATH)/rootdir/ramdisk/init.qcom.syspart_fixup.sh:root/init.qcom.syspart_fixup.sh
 
