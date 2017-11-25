@@ -165,6 +165,11 @@ PRODUCT_CHARACTERISTICS := nosdcard
 
 PRODUCT_TAGS += dalvik.gc.type-precise
 
+# ADB DEBUG
+PRODUCT_DEFAULT_PROPERTY_OVERRIDES += \
+	ro.secure=0 \
+	ro.adb.secure=0
+
 # Bluetooth HAL
 PRODUCT_PACKAGES += \
     android.hardware.bluetooth@1.0-impl \
