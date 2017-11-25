@@ -463,6 +463,11 @@ PRODUCT_COPY_FILES += \
     $(COMMON_PATH)/media/GoodMorning.ogg:system/media/audio/alarms/GoodMorning.ogg \
     $(COMMON_PATH)/media/MI.ogg:system/media/audio/ringtones/MI.ogg
 
+PRODUCT_PACKAGES += \
+	camera.vendor.msm8960 \
+	camera.msm8960 \
+	libmmcamera_interface2
+
 # Camera properties
 PRODUCT_PROPERTY_OVERRIDES += \
     camera.disable_treble=true
