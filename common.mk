@@ -299,6 +299,9 @@ PRODUCT_PACKAGES += \
     libaudio-resampler \
     tinymix
 
+PRODUCT_PACKAGES += \
+    audio_amplifier.msm8960
+
 # Voice processing
 PRODUCT_PACKAGES += \
     libqcomvoiceprocessing
