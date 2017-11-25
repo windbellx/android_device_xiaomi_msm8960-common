@@ -70,9 +70,12 @@ PRODUCT_COPY_FILES += \
     $(COMMON_PATH)/rootdir/hostapd/hostapd.accept:system/etc/hostapd/hostapd.accept \
     $(COMMON_PATH)/rootdir/hostapd/hostapd.deny:system/etc/hostapd/hostapd.deny
 
-# Audio
+# Audio configuration
 PRODUCT_COPY_FILES += \
-    $(COMMON_PATH)/rootdir/etc/audio_policy.conf:system/etc/audio_policy.conf
+    $(COMMON_PATH)/audio/audio_effects.conf:system/vendor/etc/audio_effects.conf \
+    $(COMMON_PATH)/audio/audio_platform_info.xml:system/etc/audio_platform_info.xml \
+    $(COMMON_PATH)/audio/audio_policy.conf:system/etc/audio_policy.conf \
+    $(COMMON_PATH)/audio/mixer_paths.xml:system/etc/mixer_paths.xml
 
 # Media
 PRODUCT_COPY_FILES += \
@@ -184,17 +187,14 @@ PRODUCT_PROPERTY_OVERRIDES += \
 
 # Audio Configuration
 PRODUCT_PROPERTY_OVERRIDES += \
-    ro.qc.sdk.audio.ssr=false \
-    persist.audio.fluence.mode=endfire \
+    persist.audio.fluence.mode=fluence \
+    persist.audio.fluence.voicecall=true \
+    persist.audio.fluence.speaker=true \
     persist.audio.vr.enable=false \
     persist.audio.handset.mic=digital \
     persist.audio.lowlatency.rec=false \
-    ro.qc.sdk.audio.fluencetype=none \
-    af.resampler.quality=255 \
-    lpa.use-stagefright=true \
-    qcom.hw.aac.encoder=true \
-    mm.enable.qcom_parser=33395 \
-    media.aac_51_output_enabled=true
+    ro.qc.sdk.audio.fluencetype=fluence \
+    persist.audio.vns.mode=2
 
 # BT
 PRODUCT_PROPERTY_OVERRIDES += \
@@ -298,6 +298,10 @@ PRODUCT_PACKAGES += \
     audio.usb.default \
     libaudio-resampler \
     tinymix
+
+# Voice processing
+PRODUCT_PACKAGES += \
+    libqcomvoiceprocessing
 
 # Omx
 PRODUCT_PACKAGES += \
