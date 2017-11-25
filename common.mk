@@ -102,6 +102,10 @@ PRODUCT_COPY_FILES += \
 PRODUCT_COPY_FILES += \
     $(COMMON_PATH)/rootdir/etc/gps.conf:system/etc/gps.conf
 
+# GPS HIDL interfaces
+PRODUCT_PACKAGES += \
+    android.hardware.gnss@1.0-impl
+
 # mpdecision configuration
 PRODUCT_COPY_FILES += \
     $(COMMON_PATH)/rootdir/etc/thermald-8064.conf:system/etc/thermald-8064.conf \
@@ -161,6 +165,11 @@ PRODUCT_CHARACTERISTICS := nosdcard
 
 PRODUCT_TAGS += dalvik.gc.type-precise
 
+# Bluetooth HAL
+PRODUCT_PACKAGES += \
+    android.hardware.bluetooth@1.0-impl \
+    libbt-vendor
+
 # RIL
 PRODUCT_PROPERTY_OVERRIDES += \
     telephony.lteOnCdmaDevice=0 \
@@ -197,6 +206,7 @@ PRODUCT_PROPERTY_OVERRIDES += \
 
 # BT
 PRODUCT_PROPERTY_OVERRIDES += \
+    ro.bluetooth.hfp.ver=1.6 \
     ro.qualcomm.bt.hci_transport=smd \
     ro.bluetooth.request.master=true \
     ro.bluetooth.remote.autoconnect=true \
@@ -222,9 +232,15 @@ PRODUCT_PROPERTY_OVERRIDES += \
     debug.sf.hw=1 \
     debug.egl.hw=1 \
     debug.composition.type=dyn \
+    debug.hwui.use_buffer_age=false \
     persist.hwc.mdpcomp.enable=true \
     debug.mdpcomp.logs=0 \
     ro.sf.lcd_density=320
+
+# Power package
+PRODUCT_PACKAGES += \
+    android.hardware.power@1.0-impl \
+    power.qcom
 
 # Power Profile
 PRODUCT_PROPERTY_OVERRIDES += \
@@ -288,6 +304,45 @@ PRODUCT_PACKAGES += \
     memtrack.msm8960 \
     libemoji
 
+# Display HIDL interfaces
+PRODUCT_PACKAGES += \
+    android.hardware.graphics.allocator@2.0-impl \
+    android.hardware.graphics.allocator@2.0-service \
+    android.hardware.graphics.composer@2.1-impl \
+    android.hardware.graphics.mapper@2.0-impl \
+    android.hardware.memtrack@1.0-impl
+
+# Lights HIDL interfaces
+PRODUCT_PACKAGES += \
+    lights.msm8960 \
+    android.hardware.light@2.0-impl
+
+# Vibrator HIDL interfaces
+PRODUCT_PACKAGES += \
+    android.hardware.vibrator@1.0-impl
+
+# Keymaster HIDL interfaces
+PRODUCT_PACKAGES += \
+    keymaster.msm8960 \
+    android.hardware.keymaster@3.0-impl
+
+# USB HIDL interfaces
+PRODUCT_PACKAGES += \
+    android.hardware.usb@1.0-service
+
+# Sensors
+PRODUCT_PACKAGES += \
+    sensors.msm8960 \
+    android.hardware.sensors@1.0-impl \
+
+# RenderScript HAL
+PRODUCT_PACKAGES += \
+    android.hardware.renderscript@1.0-impl
+
+# Thermal HAL
+PRODUCT_PACKAGES += \
+    android.hardware.thermal@1.0-impl
+
 # Audio
 PRODUCT_PACKAGES += \
     audio_policy.msm8960 \
@@ -297,6 +352,11 @@ PRODUCT_PACKAGES += \
     audio.usb.default \
     libaudio-resampler \
     tinymix
+
+# Audio HIDL interfaces
+PRODUCT_PACKAGES += \
+    android.hardware.audio@2.0-impl \
+    android.hardware.audio.effect@2.0-impl
 
 PRODUCT_PACKAGES += \
     audio_amplifier.msm8960
@@ -389,6 +449,26 @@ PRODUCT_COPY_FILES += \
     $(COMMON_PATH)/media/FadeOut.ogg:system/media/audio/notifications/FadeOut.ogg \
     $(COMMON_PATH)/media/GoodMorning.ogg:system/media/audio/alarms/GoodMorning.ogg \
     $(COMMON_PATH)/media/MI.ogg:system/media/audio/ringtones/MI.ogg
+
+# Camera properties
+PRODUCT_PROPERTY_OVERRIDES += \
+    camera.disable_treble=true
+
+# Camera HIDL interfaces
+PRODUCT_PACKAGES += \
+    android.hardware.camera.provider@2.4-impl \
+    camera.device@1.0-impl
+
+PRODUCT_PACKAGES += \
+    wificond
+
+# WiFi HIDL interfaces
+PRODUCT_PACKAGES += \
+    android.hardware.wifi@1.0-service
+
+# OMX properties
+PRODUCT_PROPERTY_OVERRIDES += \
+    persist.media.treble_omx=false
 
 PRODUCT_PACKAGES += \
 	libwcnss_qmi \

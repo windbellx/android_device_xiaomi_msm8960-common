@@ -18,6 +18,9 @@ COMMON_PATH := device/xiaomi/msm8960-common
 
 TARGET_SPECIFIC_HEADER_PATH := $(COMMON_PATH)/include
 
+# Vendor Interface Manifest
+DEVICE_MANIFEST_FILE := $(COMMON_PATH)/manifest.xml
+
 TARGET_NO_RADIOIMAGE := true
 TARGET_NO_BOOTLOADER := true
 
