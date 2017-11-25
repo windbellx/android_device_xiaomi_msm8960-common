@@ -269,7 +269,15 @@ PRODUCT_PACKAGES += \
 PRODUCT_PACKAGES += \
     Launcher3 \
     busybox \
-    CellBroadcastReceiver
+    CellBroadcastReceiver \
+    LatinIME \
+    Browser \
+    WallpaperPicker \
+	SoundRecorder
+
+PRODUCT_PACKAGES += \
+    Jelly \
+    Eleven
 
 PRODUCT_PACKAGES += \
     librs_jni \
