@@ -25,11 +25,6 @@ QCOM_BOARD_PLATFORMS                         := msm8960
 TARGET_BOARD_PLATFORM                          := msm8960
 TARGET_BOOTLOADER_BOARD_NAME      := MSM8960
 
-# Flags
-TARGET_GLOBAL_CFLAGS += -mfpu=neon -mfloat-abi=softfp -DQCOM_HARDWARE
-TARGET_GLOBAL_CPPFLAGS += -mfpu=neon -mfloat-abi=softfp -DQCOM_HARDWARE
-COMMON_GLOBAL_CFLAGS += -D__ARM_USE_PLD -D__ARM_CACHE_LINE_SIZE=64
-
 # Architecture
 TARGET_ARCH_VARIANT_CPU    := cortex-a9
 TARGET_CPU_ABI             := armeabi-v7a
@@ -54,6 +49,7 @@ BOARD_KERNEL_PAGESIZE := 2048
 BOARD_RAMDISK_OFFSET := 0x02000000
 BOARD_MKBOOTIMG_ARGS := --ramdisk_offset 0x02000000
 BOARD_KERNEL_CMDLINE   := console=null androidboot.hardware=qcom ehci-hcd.park=3 maxcpus=2 androidboot.bootdevice=msm_sdcc.1 androidboot.selinux=permissive
+BOARD_KERNEL_IMAGE_NAME := zImage
 
 TARGET_PREBUILT_KERNEL :=
 
@@ -140,7 +136,8 @@ HAVE_ADRENO_SOURCE:= false
 
 SUPERUSER_EMBEDDED:= true
 
-PRODUCT_BOOT_JARS += \
+#PRODUCT_BOOT_JARS += \
+    qcom.fmradio \
     qcmediaplayer \
     org.codeaurora.Performance \
     tcmiface
