@@ -20,6 +20,7 @@
 #include <pthread.h>
 #include <cutils/properties.h>
 #include <sys/stat.h>
+#include <termios.h>
 
 #include <system/audio.h>
 #include <platform.h>
@@ -27,19 +28,34 @@
 #include <sound/es310.h>
 
 #define LOG_NDEBUG 0
-#define LOG_TAG "libaudioamp"
+#define LOG_TAG "audio_amplifier"
 #include <cutils/log.h>
 
-#include "audio_amplifier.h"
+#include <hardware/audio_amplifier.h>
 
-static int mES310Fd = -1;
-static pthread_mutex_t mES310Mutex;
-static enum ES310_PathID dwOldPath = ES310_PATH_SUSPEND;
-static unsigned int dwOldPreset = -1;
+#define UNUSED __attribute__ ((unused))
 
-static audio_mode_t mMode = AUDIO_MODE_NORMAL;
-static snd_device_t in_snd_device = SND_DEVICE_NONE;
-static snd_device_t out_snd_device = SND_DEVICE_NONE;
+typedef struct amp_device {
+	amplifier_device_t amp_dev;
+	audio_mode_t mode;
+
+	int mES310Fd;
+	pthread_mutex_t mES310Mutex;
+
+	enum ES310_PathID dwPath;
+	unsigned int dwPreset;
+
+	snd_device_t in_snd_device;
+	snd_device_t out_snd_device;
+} amp_device_t;
+
+struct voiceproc_img
+{
+	unsigned char *buf;
+	unsigned img_size;
+};
+
+static amp_device_t *amp_dev = NULL;
 
 static const char *es310_getNameByPresetID(int presetID)
 {
@@ -48,8 +64,8 @@ static const char *es310_getNameByPresetID(int presetID)
 		return "ES310_PRESET_HANDSET_INCALL_NB";
 	case ES310_PRESET_HEADSET_INCALL_NB:
 		return "ES310_PRESET_HEADSET_INCALL_NB";
-	case ES310_PRESET_HANDSFREE_REC_NB:
-		return "ES310_PRESET_HANDSFREE_REC_NB";
+	case ES310_PRESET_HANDSET_INCALL_NB_1MIC:
+		return "ES310_PRESET_HANDSET_INCALL_NB_1MIC";
 	case ES310_PRESET_HANDSFREE_INCALL_NB:
 		return "ES310_PRESET_HANDSFREE_INCALL_NB";
 	case ES310_PRESET_HANDSET_INCALL_WB:
@@ -70,8 +86,8 @@ static const char *es310_getNameByPresetID(int presetID)
 		return "ES310_PRESET_HANDSFREE_VOIP_WB";
 	case ES310_PRESET_VOICE_RECOGNIZTION_WB:
 		return "ES310_PRESET_VOICE_RECOGNIZTION_WB";
-	case ES310_PRESET_HEADSET_REC_WB:
-		return "ES310_PRESET_HEADSET_REC_WB";
+	case ES310_PRESET_HANDSET_INCALL_VOIP_WB_1MIC:
+		return "ES310_PRESET_HANDSET_INCALL_VOIP_WB_1MIC";
 	case ES310_PRESET_ANALOG_BYPASS:
 		return "ES310_PRESET_ANALOG_BYPASS";
 	case ES310_PRESET_HEADSET_MIC_ANALOG_BYPASS:
@@ -201,16 +217,10 @@ int sendDownloadCmd(int uart_fd)
 	return -1;
 }
 
-struct voiceproc_img
-{
-	unsigned char *buf;
-	unsigned img_size;
-};
-
 int uartSendBinaryFile(int uart_fd, const char* img)
 {
-	int ret = -1, write_size;
-	int i = 0;
+	int ret = -1;
+	unsigned i = 0, write_size = 0;
 	ALOGE("voiceproc_uart_sendImg %s\n", img);
 	struct voiceproc_img fwimg;
 	char char_tmp = 0;
@@ -400,14 +410,14 @@ ERROR:
     return ret;
 }
 
-static int es310_init(void)
+int es310_init(amp_device_t *dev)
 {
 	int rc = -1;
 
 	ALOGD("%s\n", __func__);
 
 	// open
-	mES310Fd = open("/dev/audience_es310", O_RDWR | O_NONBLOCK, 0);
+	int mES310Fd = open("/dev/audience_es310", O_RDWR | O_NONBLOCK, 0);
 	if (mES310Fd < 0) {
 		ALOGE("%s: unable to open es310 device!", __func__);
 		return rc;
@@ -449,17 +459,18 @@ static int es310_init(void)
 			if (rc == 0)
 					break;
 	}
+	dev->mES310Fd = mES310Fd;
 
 	return rc;
 }
 
-static int es310_wakeup(void)
+static int es310_wakeup(amp_device_t *dev)
 {
 	int rc = -1;
 
 	ALOGD("%s\n", __func__);
 
-	if (mES310Fd < 0) {
+	if (dev->mES310Fd < 0) {
 		ALOGE("%s: codec not initialized.\n", __func__);
 		return rc;
 	}
@@ -468,7 +479,7 @@ static int es310_wakeup(void)
 	do {
 		ALOGV("%s: ioctl ES310_SET_CONFIG retry:%d", __func__,
 		      4 - retry);
-		rc = ioctl(mES310Fd, ES310_WAKEUP_CMD, NULL);
+		rc = ioctl(dev->mES310Fd, ES310_WAKEUP_CMD, NULL);
 		if (!rc)
 			break;
 		else
@@ -478,7 +489,7 @@ static int es310_wakeup(void)
 	return rc;
 }
 
-static int es310_do_route(void)
+static int es310_do_route(amp_device_t *dev)
 {
 	int rc = -1;
 	char cVNRMode[255] = "2";
@@ -486,12 +497,17 @@ static int es310_do_route(void)
 	enum ES310_PathID dwNewPath = ES310_PATH_SUSPEND;
 	unsigned int dwNewPreset = -1;
 
-	if (mES310Fd < 0) {
+	audio_mode_t mMode = dev->mode;
+	snd_device_t in_snd_device = dev->in_snd_device;
+	enum ES310_PathID dwOldPath = dev->dwPath;
+	unsigned int dwOldPreset = dev->dwPreset;
+
+	if (dev->mES310Fd < 0) {
 		ALOGE("%s: codec not initialized.\n", __func__);
 		return rc;
 	}
 
-	pthread_mutex_lock(&mES310Mutex);
+	pthread_mutex_lock(&dev->mES310Mutex);
 
 	// original usecase: suspend if we don't use a mic
 	// if we don't use any input device codec config doesn't matter.
@@ -632,10 +648,10 @@ route:
 	if (VNRMode == 1) {
 		ALOGV("%s: Switch to 1-Mic Solution", __func__);
 		if (dwNewPreset == ES310_PRESET_HANDSET_INCALL_NB) {
-			dwNewPreset = ES310_PRESET_HANDSFREE_REC_NB;
+			dwNewPreset = ES310_PRESET_HANDSET_INCALL_NB_1MIC;
 		}
 		if (dwNewPreset == ES310_PRESET_HANDSET_VOIP_WB) {
-			dwNewPreset = ES310_PRESET_HEADSET_REC_WB;
+			dwNewPreset = ES310_PRESET_HANDSET_INCALL_VOIP_WB_1MIC;
 		}
 	}
 	// still the same path and preset
@@ -652,7 +668,7 @@ route:
 
 	// wakeup if suspended
 	if (dwOldPath == ES310_PATH_SUSPEND) {
-		rc = es310_wakeup();
+		rc = es310_wakeup(dev);
 		if (rc) {
 			ALOGE("%s: es310_wakeup() failed rc=%d\n", __func__,
 			      rc);
@@ -665,10 +681,10 @@ route:
 		do {
 			ALOGE("%s: ioctl ES310_SET_CONFIG newPath:%d, retry:%d",
 			      __func__, dwNewPath, (4 - retry));
-			rc = ioctl(mES310Fd, ES310_SET_CONFIG, &dwNewPath);
+			rc = ioctl(dev->mES310Fd, ES310_SET_CONFIG, &dwNewPath);
 
 			if (!rc) {
-				dwOldPath = dwNewPath;
+				dev->dwPath = dwNewPath;
 				break;
 			} else {
 				ALOGE("%s: ES310_SET_CONFIG rc=%d", __func__,
@@ -686,10 +702,10 @@ route:
 			ALOGE
 			    ("%s: ioctl ES310_SET_PRESET newPreset:0x%x, retry:%d",
 			     __func__, dwNewPreset, (4 - retry));
-			rc = ioctl(mES310Fd, ES310_SET_PRESET, &dwNewPreset);
+			rc = ioctl(dev->mES310Fd, ES310_SET_PRESET, &dwNewPreset);
 
 			if (!rc) {
-				dwOldPreset = dwNewPreset;
+				dev->dwPreset = dwNewPreset;
 				break;
 			} else {
 				ALOGE("%s: ES310_SET_PRESET rc=%d", __func__,
@@ -707,21 +723,21 @@ recover:
 		      __func__);
 
 		// close device first
-		close(mES310Fd);
-		mES310Fd = -1;
+		close(dev->mES310Fd);
+		dev->mES310Fd = -1;
 
 		// re-init
-		rc = es310_init();
+		rc = es310_init(dev);
 		if (!rc) {
 			// set new config
-			rc = ioctl(mES310Fd, ES310_SET_CONFIG, &dwNewPath);
+			rc = ioctl(dev->mES310Fd, ES310_SET_CONFIG, &dwNewPath);
 			if (rc) {
 				ALOGE("%s: RECOVERY: ES310_SET_CONFIG rc=%d",
 				      __func__, rc);
 				goto unlock;
 			}
 
-			dwOldPath = dwNewPath;
+			dev->dwPath = dwNewPath;
 		} else {
 			ALOGE("%s: RECOVERY: es310_init() failed rc=%d\n",
 			      __func__, rc);
@@ -730,62 +746,137 @@ recover:
 	}
 
 unlock:
-	pthread_mutex_unlock(&mES310Mutex);
+	pthread_mutex_unlock(&dev->mES310Mutex);
 	return rc;
 }
 
-int amplifier_open(void)
+static int amplifier_init(amp_device_t *dev)
 {
-	// mutex init
-	pthread_mutex_init(&mES310Mutex, NULL);
+	dev->mode = AUDIO_MODE_NORMAL;
+	dev->mES310Fd = -1;
+	dev->dwPath = ES310_PATH_SUSPEND;
+	dev->dwPreset = -1;
+	dev->in_snd_device = SND_DEVICE_NONE;
+	dev->out_snd_device = SND_DEVICE_NONE;
 
-	return es310_init();
+	// mutex init
+	pthread_mutex_init(&dev->mES310Mutex, NULL);
+
+	return es310_init(dev);
 }
 
-void amplifier_set_devices(int snd_device)
-{
+static int set_input_devices(struct amplifier_device *device, uint32_t snd_device) {
+	amp_device_t *dev = (amp_device_t *) device;
 	snd_device_t new_in_snd_device = SND_DEVICE_NONE;
-	snd_device_t new_out_snd_device = SND_DEVICE_NONE;
 
 	if (snd_device != 0) {
-		if (snd_device >= SND_DEVICE_OUT_BEGIN
-		    && snd_device < SND_DEVICE_OUT_END)
-			new_out_snd_device = snd_device;
-		else
-			new_in_snd_device = snd_device;
+		new_in_snd_device = snd_device;
 
-		if (new_in_snd_device != in_snd_device
-		    || new_out_snd_device != out_snd_device) {
-			in_snd_device = new_in_snd_device;
-			out_snd_device = new_out_snd_device;
+		if (new_in_snd_device != dev->in_snd_device) {
+			dev->in_snd_device = new_in_snd_device;
 
-			es310_do_route();
+			es310_do_route(dev);
 		}
 	}
+
+	return 0;
 }
 
-int amplifier_set_mode(audio_mode_t mode)
-{
-	int rc = -1;
+static int set_output_devices(struct amplifier_device *device, uint32_t snd_device) {
+	amp_device_t *dev = (amp_device_t *) device;
+	snd_device_t new_out_snd_device = SND_DEVICE_NONE;
+	
+	if (snd_device != 0) {
+		new_out_snd_device = snd_device;
 
+		if (new_out_snd_device != dev->out_snd_device) {
+			dev->out_snd_device = new_out_snd_device;
+
+			es310_do_route(dev);
+		}
+	}
+
+	return 0;
+}
+
+static int amplifier_set_mode(struct amplifier_device *device, audio_mode_t mode) {
+	amp_device_t *dev = (amp_device_t *) device;
+	int rc = -1;
+	
 	if ((mode < AUDIO_MODE_CURRENT) || (mode >= AUDIO_MODE_CNT)) {
 		ALOGW("%s: invalid mode=%d\n", __func__, mode);
 		return rc;
 	}
 
-	if (mMode != mode) {
-		ALOGD("%s: mode: %d->%d\n", __func__, mMode, mode);
-		mMode = mode;
-		es310_do_route();
+	if (dev->mode != mode) {
+		ALOGD("%s: mode: %d->%d\n", __func__, dev->mode, mode);
+		dev->mode = mode;
+		es310_do_route(dev);
 	}
 
 	return 0;
 }
 
-int amplifier_close(void)
+static int amp_dev_close(hw_device_t *device)
 {
-	close(mES310Fd);
-	mES310Fd = -1;
+    amp_device_t *dev = (amp_device_t *) device;
+
+		close(dev->mES310Fd);
+		dev->mES310Fd = -1;
+    free(dev);
+
+    return 0;
+}
+
+static int amp_module_open(const hw_module_t *module, const char *name UNUSED,
+        hw_device_t **device)
+{
+	int ret;
+
+	if (amp_dev) {
+		ALOGE("%s:%d: Unable to open second instance of the amplifier\n", __func__, __LINE__);
+		return -EBUSY;
+	}
+
+	amp_dev = calloc(1, sizeof(amp_device_t));
+	if (!amp_dev) {
+		ALOGE("%s:%d: Unable to allocate memory for amplifier device\n", __func__, __LINE__);
+		return -ENOMEM;
+	}
+
+	amp_dev->amp_dev.common.tag = HARDWARE_DEVICE_TAG;
+	amp_dev->amp_dev.common.module = (hw_module_t *) module;
+	amp_dev->amp_dev.common.version = HARDWARE_DEVICE_API_VERSION(1, 0);
+	amp_dev->amp_dev.common.close = amp_dev_close;
+
+	amp_dev->amp_dev.set_input_devices = set_input_devices;
+	amp_dev->amp_dev.set_output_devices = set_output_devices;
+	amp_dev->amp_dev.enable_input_devices = NULL;
+	amp_dev->amp_dev.enable_output_devices = NULL;
+	amp_dev->amp_dev.set_mode = amplifier_set_mode;
+	amp_dev->amp_dev.output_stream_start = NULL;
+	amp_dev->amp_dev.input_stream_start = NULL;
+	amp_dev->amp_dev.output_stream_standby = NULL;
+	amp_dev->amp_dev.input_stream_standby = NULL;
+
+	amplifier_init(amp_dev);
+	*device = (hw_device_t *) amp_dev;
 
 	return 0;
 }
+
+static struct hw_module_methods_t hal_module_methods = {
+	.open = amp_module_open,
+};
+
+amplifier_module_t HAL_MODULE_INFO_SYM = {
+	.common = {
+			.tag = HARDWARE_MODULE_TAG,
+			.module_api_version = AMPLIFIER_MODULE_API_VERSION_0_1,
+			.hal_api_version = HARDWARE_HAL_API_VERSION,
+			.id = AMPLIFIER_HARDWARE_MODULE_ID,
+			.name = "Xiaomi aries amplifier HAL",
+			.author = "The LineageOS Open Source Project",
+			.methods = &hal_module_methods,
+	},
+};
