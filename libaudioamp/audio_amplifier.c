@@ -19,13 +19,14 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <cutils/properties.h>
+#include <sys/stat.h>
 
 #include <system/audio.h>
 #include <platform.h>
 #include <audio_hw.h>
 #include <sound/es310.h>
 
-//#define LOG_NDEBUG 0
+#define LOG_NDEBUG 0
 #define LOG_TAG "libaudioamp"
 #include <cutils/log.h>
 
@@ -47,8 +48,8 @@ static const char *es310_getNameByPresetID(int presetID)
 		return "ES310_PRESET_HANDSET_INCALL_NB";
 	case ES310_PRESET_HEADSET_INCALL_NB:
 		return "ES310_PRESET_HEADSET_INCALL_NB";
-	case ES310_PRESET_HANDSET_INCALL_NB_1MIC:
-		return "ES310_PRESET_HANDSET_INCALL_NB_1MIC";
+	case ES310_PRESET_HANDSFREE_REC_NB:
+		return "ES310_PRESET_HANDSFREE_REC_NB";
 	case ES310_PRESET_HANDSFREE_INCALL_NB:
 		return "ES310_PRESET_HANDSFREE_INCALL_NB";
 	case ES310_PRESET_HANDSET_INCALL_WB:
@@ -69,8 +70,8 @@ static const char *es310_getNameByPresetID(int presetID)
 		return "ES310_PRESET_HANDSFREE_VOIP_WB";
 	case ES310_PRESET_VOICE_RECOGNIZTION_WB:
 		return "ES310_PRESET_VOICE_RECOGNIZTION_WB";
-	case ES310_PRESET_HANDSET_INCALL_VOIP_WB_1MIC:
-		return "ES310_PRESET_HANDSET_INCALL_VOIP_WB_1MIC";
+	case ES310_PRESET_HEADSET_REC_WB:
+		return "ES310_PRESET_HEADSET_REC_WB";
 	case ES310_PRESET_ANALOG_BYPASS:
 		return "ES310_PRESET_ANALOG_BYPASS";
 	case ES310_PRESET_HEADSET_MIC_ANALOG_BYPASS:
@@ -100,6 +101,305 @@ static const char *es310_getNameByPathID(int pathID)
 	return "Unknown";
 }
 
+#define BUFSIZE_UART 1024
+#define VOICEPROC_MAX_FW_SIZE	(32 * 4096)
+
+static void setHigherBaudrate(int uart_fd, int baud)
+{
+	struct termios2 ti2;
+       struct termios ti;
+	/* Flush non-transmitted output data,
+	 * non-read input data or both
+	 */
+	tcflush(uart_fd, TCIFLUSH);
+
+	/* Set the UART flow control */
+
+	ti.c_cflag |= 1;
+
+	/* ti.c_cflag |= (CLOCAL | CREAD | CSTOPB); */
+	/*	ti.c_cflag &= ~(CRTSCTS | PARENB); */
+
+	/*
+	 * Enable the receiver and set local mode + 2 STOP bits
+	 */
+	ti.c_cflag |= (CLOCAL | CREAD | CSTOPB);
+	/* 8 data bits */
+	ti.c_cflag &= ~CSIZE;
+	ti.c_cflag |= CS8;
+	/* diable HW flow control and parity check */
+	ti.c_cflag &= ~(CRTSCTS | PARENB);
+
+	/* choose raw input */
+	ti.c_lflag &= ~(ICANON | ECHO);
+	/* choose raw output */
+	ti.c_oflag &= ~OPOST;
+	/* ignore break condition, CR and parity error */
+	ti.c_iflag |= (IGNBRK | IGNPAR);
+	ti.c_iflag &= ~(IXON | IXOFF | IXANY);
+	ti.c_cc[VMIN] = 0;
+	ti.c_cc[VTIME] = 10;
+
+	/*
+	 * Set the parameters associated with the UART
+	 * The change will occur immediately by using TCSANOW
+	 */
+	if (tcsetattr(uart_fd, TCSANOW, &ti) < 0) {
+		printf("Can't set port settings\n");
+		return;
+	}
+
+	tcflush(uart_fd, TCIFLUSH);
+
+	/* Set the actual baud rate */
+	ioctl(uart_fd, TCGETS2, &ti2);
+	ti2.c_cflag &= ~CBAUD;
+	ti2.c_cflag |= BOTHER;
+	ti2.c_ospeed = baud;
+	ti2.c_ispeed = baud;
+	ioctl(uart_fd, TCSETS2, &ti2);
+}
+
+int sendDownloadCmd(int uart_fd)
+{
+	unsigned char respBuffer = 0xcc, tmp;
+	int nretry = 10, rc;
+	int BytesWritten, readCnt;
+
+	tmp = 0x00;
+	BytesWritten = write(uart_fd, &tmp, 1);
+	if (BytesWritten == -1)
+		ALOGE("error writing synccmd to comm port: %s\n", strerror(errno));
+	else
+		ALOGE("Uart_write BytesWritten = %i\n", BytesWritten);
+
+	usleep(1000);
+	readCnt = read(uart_fd, &respBuffer, 1);
+	if (readCnt == -1)
+		ALOGE("error reading bootcmd from comm port: %s\n", strerror(errno));
+	else
+		ALOGE("readCnt = %d, respBuffer = %.2x\n", readCnt, respBuffer);
+	usleep(1000);
+
+	tmp = 0x01;
+	BytesWritten = write(uart_fd, &tmp, 1);
+	if (BytesWritten == -1)
+		ALOGE("error writing bootcmd to comm port: %s\n", strerror(errno));
+	else
+		ALOGE("Uart_write BytesWritten = %i\n", BytesWritten);
+
+	usleep(1000);
+	readCnt = read(uart_fd, &respBuffer, 1);
+	if (readCnt == -1)
+		ALOGE("error reading bootcmd from comm port: %s\n", strerror(errno));
+	else
+		ALOGE("readCnt = %d, respBuffer = %.2x\n", readCnt, respBuffer);
+
+	if (respBuffer == 1)
+		return 0;
+
+	return -1;
+}
+
+struct voiceproc_img
+{
+	unsigned char *buf;
+	unsigned img_size;
+};
+
+int uartSendBinaryFile(int uart_fd, const char* img)
+{
+	int ret = -1, write_size;
+	int i = 0;
+	ALOGE("voiceproc_uart_sendImg %s\n", img);
+	struct voiceproc_img fwimg;
+	char char_tmp = 0;
+	unsigned char local_vpimg_buf[VOICEPROC_MAX_FW_SIZE], *ptr = local_vpimg_buf;
+	int rc = 0, fw_fd = -1;
+	ssize_t nr;
+	size_t remaining;
+	struct stat fw_stat;
+
+	fw_fd = open(img, O_RDONLY);
+	if (fw_fd < 0) {
+		ALOGE("Fail to open %s\n", img);
+              rc = -1;
+		goto ld_img_error;
+	}
+
+	rc = fstat(fw_fd, &fw_stat);
+	if (rc < 0) {
+		ALOGE("Cannot stat file %s: %s\n", img, strerror(errno));
+              rc = -1;
+		goto ld_img_error;
+	}
+
+	remaining = (int)fw_stat.st_size;
+
+	ALOGV("Firmware %s size %d\n", img, remaining);
+
+	if (remaining > sizeof(local_vpimg_buf)) {
+		ALOGE("File %s size %d exceeds internal limit %d\n",
+			 img, remaining, sizeof(local_vpimg_buf));
+              rc = -1;
+		goto ld_img_error;
+	}
+
+	while (remaining) {
+		nr = read(fw_fd, ptr, remaining);
+		if (nr < 0) {
+			ALOGE("Error reading firmware: %s\n", strerror(errno));
+                     rc=-1;
+			goto ld_img_error;
+		} else if (!nr) {
+			if (remaining)
+				ALOGV("EOF reading firmware %s while %d bytes remain\n",
+					 img, remaining);
+			break;
+		}
+		remaining -= nr;
+		ptr += nr;
+	}
+
+	close (fw_fd);
+	fw_fd = -1;
+
+	fwimg.buf = local_vpimg_buf;
+	fwimg.img_size = (int)(fw_stat.st_size - remaining);
+	ALOGV("voiceproc_uart_sendImg firmware Total %d bytes\n", fwimg.img_size);
+	i = 0;
+	write_size = 0;
+
+	while (i < fwimg.img_size) {
+		ret = write(uart_fd, fwimg.buf+i,
+			(fwimg.img_size - i) < BUFSIZE_UART ? (fwimg.img_size-i) : BUFSIZE_UART);
+		if (ret == -1)
+              {
+			ALOGV("Error, voiceproc uart write: %s\n", strerror(errno));
+                     rc = -1;
+                     goto ld_img_error;
+              }
+
+		write_size += ret;
+		i += BUFSIZE_UART;
+	}
+	if (write_size != fwimg.img_size)
+       {
+		ALOGE("Error, UART writeCnt %d != img_size %d\n", write_size, fwimg.img_size);
+              rc = -1;
+              goto ld_img_error;
+       }
+	else
+		ALOGV("UART writeCnt is %d verus img_size is %d\n", write_size, fwimg.img_size);
+
+ld_img_error:
+	if (fw_fd >= 0)
+		close(fw_fd);
+	return rc;
+}
+
+#define UART_INIT_IMAGE "/system/etc/firmware/voiceproc_init.img"
+#define UART_DEV_NAME "/dev/ttyHS2"
+int uart_load_binary(int fd, char *firmware_path)
+{
+    int ret = 0;
+    int uart_fd = 0;
+    int i;
+    int retry_count = 100;
+    struct termios options;
+    struct termios2 options2;
+
+    while (retry_count) {
+        ret = ioctl(fd, ES310_RESET_CMD);
+        if (!ret)
+            ALOGV("ES310: voiceproc_reset ES310_RESET_CMD OK\n");
+        else
+            ALOGE("ES310: voiceproc_reset ES310_RESET_CMD error %s\n", strerror(errno));
+
+        /* init uart port */
+        uart_fd = open(UART_DEV_NAME, O_RDWR | O_NOCTTY | O_NDELAY);
+        if (uart_fd < 0) {
+            ALOGE("fail to open uart port %s\n", UART_DEV_NAME);
+            return -1;
+        }
+        fcntl(uart_fd, F_SETFL, 0);
+
+        /* First stage download */
+        setHigherBaudrate(uart_fd, 28800);
+
+        /* reset voice processor */
+        usleep(10000);
+
+        ret = sendDownloadCmd(uart_fd);
+        if (ret) {
+            ALOGE("error sending 1st download command on 1st stage\n");
+            retry_count--;
+            close(uart_fd);
+            continue;
+        }
+
+        uartSendBinaryFile(uart_fd, UART_INIT_IMAGE);
+        ALOGV("Send init image done\n");
+
+        /* Second stage download */
+        if (tcgetattr(uart_fd, &options) < 0) {
+            ALOGE("Can't get port settings\n");
+            retry_count--;
+            close(uart_fd);
+            continue;
+        } else if (tcsetattr(uart_fd, TCSADRAIN, &options) < 0) {
+            ALOGE("Can't set port settings\n");
+            retry_count--;
+            close(uart_fd);
+            continue;
+        }
+        if (ioctl(uart_fd, TCGETS2, &options2) < 0) {
+            ALOGE("Can't get port settings 2\n");
+            retry_count--;
+            close(uart_fd);
+            continue;
+        } else {
+            options2.c_cflag &= ~CBAUD;
+            options2.c_cflag |= BOTHER;
+            options2.c_ospeed = 3000000;
+            options2.c_ispeed = 3000000;
+            if (ioctl(uart_fd, TCSETS2, &options2) < 0) {
+                ALOGE("Can't set port settings 2\n");
+                retry_count--;
+                close(uart_fd);
+                continue;
+            }
+        }
+
+        usleep(10000);
+        ret = sendDownloadCmd(uart_fd);
+        if (ret) {
+            ALOGE("ES310: error sending download command, abort. \n");
+            ALOGE("ES310: retry_count:%d", 100 - retry_count);
+            retry_count--;
+            close(uart_fd);
+            continue;
+        } else {
+            ALOGV("ES310: init send command done");
+            break;
+        }
+    }
+
+    if (ret) {
+        ALOGE("ES310: initial codec command error");
+        ret = -1;
+        goto ERROR;
+    }
+
+    usleep(1000);
+    ret = uartSendBinaryFile(uart_fd, firmware_path);
+
+ERROR:
+    close(uart_fd);
+
+    return ret;
+}
+
 static int es310_init(void)
 {
 	int rc = -1;
@@ -120,13 +420,34 @@ static int es310_init(void)
 		mES310Fd = -1;
 		return rc;
 	}
+
 	// sync
-	rc = ioctl(mES310Fd, ES310_SYNC_CMD, NULL);
-	if (rc) {
-		ALOGE("%s: ES310_SYNC_CMD fail, rc=%d", __func__, rc);
-		close(mES310Fd);
-		mES310Fd = -1;
-		return rc;
+	int retry_count = 20;
+	while(retry_count)
+	{
+			ALOGV("start loading the voiceproc.img file, retry:%d +", 20 - retry_count);
+			ALOGV("set codec reset command");
+			rc = uart_load_binary(mES310Fd, "/etc/firmware/voiceproc.img");
+			if (rc != 0)
+			{
+					ALOGE("uart_load_binary fail, rc:%d", rc);
+					retry_count--;
+					continue;
+			}
+			ALOGV("start loading the voiceproc.img file -");
+			usleep(11000);
+			ALOGV("ES310 SYNC CMD +");
+			rc = ioctl(mES310Fd, ES310_SYNC_CMD, NULL);
+			ALOGV("ES310 SYNC CMD, rc:%d-", rc);
+			if (rc != 0)
+			{
+					ALOGE("ES310 SYNC CMD fail, rc:%d", rc);
+					retry_count--;
+					continue;
+			}
+
+			if (rc == 0)
+					break;
 	}
 
 	return rc;
@@ -217,7 +538,7 @@ static int es310_do_route(void)
 
 		// headset
 		case SND_DEVICE_IN_HEADSET_MIC:
-		case SND_DEVICE_IN_HEADSET_MIC_AEC:
+		// case SND_DEVICE_IN_HEADSET_MIC_AEC:
 		case SND_DEVICE_IN_VOICE_HEADSET_MIC:
 		case SND_DEVICE_IN_VOICE_TTY_FULL_HEADSET_MIC:
 		case SND_DEVICE_IN_VOICE_TTY_HCO_HEADSET_MIC:
@@ -240,7 +561,7 @@ static int es310_do_route(void)
 #endif
 		case SND_DEVICE_IN_VOICE_REC_MIC:
 #ifdef AUDIO_CAF
-		case SND_DEVICE_IN_VOICE_REC_DMIC:
+		// case SND_DEVICE_IN_VOICE_REC_DMIC:
 		case SND_DEVICE_IN_VOICE_REC_DMIC_FLUENCE:
 #else
 		case SND_DEVICE_IN_VOICE_REC_DMIC_EF:
@@ -275,7 +596,7 @@ static int es310_do_route(void)
 		// voice-rec-*
 		case SND_DEVICE_IN_VOICE_REC_MIC:
 #ifdef AUDIO_CAF
-		case SND_DEVICE_IN_VOICE_REC_DMIC:
+		// case SND_DEVICE_IN_VOICE_REC_DMIC:
 		case SND_DEVICE_IN_VOICE_REC_DMIC_FLUENCE:
 #else
 		case SND_DEVICE_IN_VOICE_REC_DMIC_EF:
@@ -289,7 +610,7 @@ static int es310_do_route(void)
 
 		// headset-mic
 		case SND_DEVICE_IN_HEADSET_MIC:
-		case SND_DEVICE_IN_HEADSET_MIC_AEC:
+		// case SND_DEVICE_IN_HEADSET_MIC_AEC:
 			dwNewPath = ES310_PATH_HEADSET;
 			dwNewPreset = ES310_PRESET_HEADSET_MIC_ANALOG_BYPASS;
 			break;
@@ -311,10 +632,10 @@ route:
 	if (VNRMode == 1) {
 		ALOGV("%s: Switch to 1-Mic Solution", __func__);
 		if (dwNewPreset == ES310_PRESET_HANDSET_INCALL_NB) {
-			dwNewPreset = ES310_PRESET_HANDSET_INCALL_NB_1MIC;
+			dwNewPreset = ES310_PRESET_HANDSFREE_REC_NB;
 		}
 		if (dwNewPreset == ES310_PRESET_HANDSET_VOIP_WB) {
-			dwNewPreset = ES310_PRESET_HANDSET_INCALL_VOIP_WB_1MIC;
+			dwNewPreset = ES310_PRESET_HEADSET_REC_WB;
 		}
 	}
 	// still the same path and preset
