@@ -30,11 +30,10 @@ DEVICE_PACKAGE_OVERLAYS += $(COMMON_PATH)/overlay
 PRODUCT_AAPT_CONFIG := normal hdpi xhdpi
 PRODUCT_AAPT_PREF_CONFIG := xhdpi
 
-PRODUCT_LOCALES := en_US
-
 # Ramdisk
 PRODUCT_COPY_FILES += \
     $(COMMON_PATH)/rootdir/ramdisk/init.qcom.rc:root/init.qcom.rc \
+    $(COMMON_PATH)/rootdir/ramdisk/init.qcom.power.rc:root/init.qcom.power.rc \
     $(COMMON_PATH)/rootdir/ramdisk/init.qcom.usb.rc:root/init.qcom.usb.rc \
     $(COMMON_PATH)/rootdir/ramdisk/ueventd.qcom.rc:root/ueventd.qcom.rc \
     $(COMMON_PATH)/rootdir/ramdisk/init.qcom.usb.sh:root/init.qcom.usb.sh \
@@ -70,10 +69,17 @@ PRODUCT_COPY_FILES += \
     $(COMMON_PATH)/rootdir/hostapd/hostapd.deny:system/etc/hostapd/hostapd.deny
 
 # Audio configuration
+USE_XML_AUDIO_POLICY_CONF := 1
+# Audio configuration
 PRODUCT_COPY_FILES += \
-    $(COMMON_PATH)/audio/audio_effects.conf:system/vendor/etc/audio_effects.conf \
+    frameworks/av/services/audiopolicy/config/a2dp_audio_policy_configuration.xml:system/vendor/etc/a2dp_audio_policy_configuration.xml \
+    frameworks/av/services/audiopolicy/config/audio_policy_volumes.xml:system/vendor/etc/audio_policy_volumes.xml \
+    frameworks/av/services/audiopolicy/config/default_volume_tables.xml:system/vendor/etc/default_volume_tables.xml \
+    frameworks/av/services/audiopolicy/config/r_submix_audio_policy_configuration.xml:system/vendor/etc/r_submix_audio_policy_configuration.xml \
+    frameworks/av/services/audiopolicy/config/usb_audio_policy_configuration.xml:system/vendor/etc/usb_audio_policy_configuration.xml \
+    $(COMMON_PATH)/audio/audio_effects.xml:system/vendor/etc/audio_effects.xml \
     $(COMMON_PATH)/audio/audio_platform_info.xml:system/etc/audio_platform_info.xml \
-    $(COMMON_PATH)/audio/audio_policy.conf:system/etc/audio_policy.conf \
+    $(COMMON_PATH)/audio/audio_policy_configuration.xml:system/vendor/etc/audio_policy_configuration.xml \
     $(COMMON_PATH)/audio/mixer_paths.xml:system/etc/mixer_paths.xml
 
 # Media
@@ -102,9 +108,23 @@ PRODUCT_COPY_FILES += \
 PRODUCT_COPY_FILES += \
     $(COMMON_PATH)/rootdir/etc/gps.conf:system/etc/gps.conf
 
+# GPS
+PRODUCT_PACKAGES += \
+        libloc_eng \
+        libloc_core \
+        libgps.utils \
+        gps.msm8960 \
+
 # GPS HIDL interfaces
 PRODUCT_PACKAGES += \
     android.hardware.gnss@1.0-impl
+
+# GPS properties
+PRODUCT_PROPERTY_OVERRIDES += \
+    persist.gps.qc_nlp_in_use=0 \
+    ro.qc.sdk.izat.premium_enabled=0 \
+    ro.qc.sdk.izat.service_mask=0x4 \
+    ro.gps.agps_provider=1
 
 # mpdecision configuration
 PRODUCT_COPY_FILES += \
@@ -193,20 +213,20 @@ PRODUCT_PROPERTY_OVERRIDES += \
 
 # QC Perf
 PRODUCT_PROPERTY_OVERRIDES += \
-    ro.vendor.extension_library=libqti-perfd-client.so
+    ro.vendor.extension_library=libqti-perfd-client.so \
     com.qc.hardware=true \
     ro.qc.sdk.sensors.gestures=false \
     ro.qc.sensors.wl_dis=true
 
-# Audio Configuration
+# Audio properties
 PRODUCT_PROPERTY_OVERRIDES += \
-    persist.audio.fluence.mode=fluence \
+    audio.offload.disable=1 \
+    mm.enable.smoothstreaming=true \
     persist.audio.fluence.voicecall=true \
+    persist.audio.fluence.voicerec=false \
     persist.audio.fluence.speaker=true \
-    persist.audio.vr.enable=false \
-    persist.audio.handset.mic=digital \
-    persist.audio.lowlatency.rec=false \
-    ro.qc.sdk.audio.fluencetype=fluence \
+    qcom.hw.aac.encoder=true \
+    ro.qc.sdk.audio.fluencetype=none \
     persist.audio.vns.mode=2
 
 # BT
@@ -273,7 +293,7 @@ PRODUCT_PACKAGES += \
     LatinIME \
     Browser \
     WallpaperPicker \
-	SoundRecorder
+    Recorder
 
 PRODUCT_PACKAGES += \
     Jelly \
@@ -374,7 +394,7 @@ PRODUCT_PACKAGES += \
     android.hardware.audio@2.0-impl \
     android.hardware.audio.effect@2.0-impl
 
-PRODUCT_PACKAGES += \
+#PRODUCT_PACKAGES += \
     audio_amplifier.msm8960
 
 # Voice processing
@@ -450,9 +470,6 @@ PRODUCT_PACKAGES += \
     ExactCalculator \
     messaging
 
-PRODUCT_DEFAULT_PROPERTY_OVERRIDES += \
-    camera2.portability.force_api=1
-
 # Default Audio
 PRODUCT_PROPERTY_OVERRIDES += \
     ro.config.ringtone=MI.ogg \
@@ -471,10 +488,6 @@ PRODUCT_PACKAGES += \
 	camera.msm8960 \
 	libmmcamera_interface2
 
-# Camera properties
-PRODUCT_PROPERTY_OVERRIDES += \
-    camera.disable_treble=true
-
 # Camera HIDL interfaces
 PRODUCT_PACKAGES += \
     android.hardware.camera.provider@2.4-impl \
@@ -491,9 +504,24 @@ PRODUCT_PACKAGES += \
 PRODUCT_PROPERTY_OVERRIDES += \
     persist.media.treble_omx=false
 
+# SoftAP
 PRODUCT_PACKAGES += \
+	libqsap_sdk \
+	libQWiFiSoftApCfg \
 	libwcnss_qmi \
 	wcnss_service
+
+# Healthd packages
+PRODUCT_PACKAGES += \
+    charger_res_images
+
+# Tethering - allow without requiring a provisioning app
+# (for devices that check this)
+PRODUCT_PROPERTY_OVERRIDES += \
+    net.tethering.noprovisioning=true
+
+PRODUCT_PROPERTY_OVERRIDES += \
+    persist.sys.root_access=3
 
 # This is the aries-specific audio package
 $(call inherit-product, frameworks/base/data/sounds/AudioPackage10.mk)

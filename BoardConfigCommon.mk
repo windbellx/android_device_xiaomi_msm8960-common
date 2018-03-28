@@ -86,16 +86,22 @@ TARGET_USES_ION             := true
 USE_OPENGL_RENDERER         := true
 TARGET_USES_C2D_COMPOSITION := true
 NUM_FRAMEBUFFER_SURFACE_BUFFERS := 3
+TARGET_DISPLAY_USE_RETIRE_FENCE := true
 
 # Audio
 BOARD_USES_ALSA_AUDIO                   := true
 AUDIO_FEATURE_ENABLED_PROXY_DEVICE		:= false
 AUDIO_FEATURE_ENABLED_COMPRESS_VOIP		:= false
+
+# Use mke2fs to create ext4 images
+TARGET_USES_MKE2FS := true
+
 # GPS
 #The below will be needed if we ever want to build GPS HAL from source
-#TARGET_PROVIDES_GPS_LOC_API := true
-#BOARD_VENDOR_QCOM_GPS_LOC_API_HARDWARE := $(TARGET_BOARD_PLATFORM)
-#TARGET_NO_RPC := true
+TARGET_PROVIDES_GPS_LOC_API := true
+BOARD_VENDOR_QCOM_LOC_PDK_FEATURE_SET := true
+BOARD_VENDOR_QCOM_GPS_LOC_API_HARDWARE := $(TARGET_BOARD_PLATFORM)
+TARGET_NO_RPC := true
 
 # Camera
 BOARD_GLOBAL_CFLAGS       += -DQCOM_BSP
@@ -108,6 +114,20 @@ BLUETOOTH_HCI_USE_MCT                       := true
 # Webkit
 ENABLE_WEBGL            := true
 TARGET_FORCE_CPU_UPLOAD := true
+
+# Healthd
+BOARD_CHARGER_ENABLE_SUSPEND := true
+BOARD_CHARGER_DISABLE_INIT_BLANK := true
+BACKLIGHT_PATH := /sys/class/leds/lcd-backlight/brightness
+SECONDARY_BACKLIGHT_PATH := /sys/devices/i2c-0/0-0038/leds/lm3530-backlight/brightness
+
+# Healthd library extension
+BOARD_HAL_STATIC_LIBRARIES := libhealthd.board
+BOARD_HEALTHD_CUSTOM_CHARGER_RES := $(COMMON_PATH)/charger/images
+
+# Power HAL
+CM_POWERHAL_EXTENSION := qcom
+TARGET_POWERHAL_VARIANT := qcom
 
 # Recovery
 RECOVERY_FSTAB_VERSION           := 2
@@ -151,8 +171,10 @@ TARGET_USES_MEDIA_EXTENSIONS := true
 
 MALLOC_SVELTE := true
 
+WITH_DEXPREOPT := true
+
 ## TWRP
-#RECOVERY_VARIANT					:= twrp
+RECOVERY_VARIANT					:= twrp
 TW_THEME							:= portrait_hdpi
 RECOVERY_SDCARD_ON_DATA				:= true
 TW_FLASH_FROM_STORAGE				:= true
@@ -164,3 +186,4 @@ RECOVERY_GRAPHICS_USE_LINELENGTH	:= true
 TW_NEW_ION_HEAP						:= false
 TW_DEFAULT_BRIGHTNESS				:= 15
 #TW_NEVER_UNMOUNT_SYSTEM				:= true
+TW_EXCLUDE_SUPERSU					:= true
